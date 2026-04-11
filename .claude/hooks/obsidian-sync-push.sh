@@ -8,6 +8,7 @@ VAULT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}/vault"
 # Route ob fetch calls through the sandbox proxy (same as pull hook).
 GLOBAL_NODE_MODULES=$(npm root -g)
 export GLOBAL_NODE_MODULES
+export NODE_PATH="$GLOBAL_NODE_MODULES"
 BOOTSTRAP="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/node-proxy-bootstrap.js"
 export NODE_OPTIONS="--require $BOOTSTRAP"
 
