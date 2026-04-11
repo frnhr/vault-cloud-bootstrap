@@ -34,11 +34,15 @@ export NODE_OPTIONS="--require $BOOTSTRAP"
 
 # Idempotent first-run auth + remote vault pairing.
 # Credentials come from env vars; never written into the repo or the vault.
-if [ ! -f "$HOME/.obsidian-headless/config.json" ]; then
+# auth_token file is created by `ob login`; its absence means a fresh sandbox.
+if [ ! -f "$HOME/.config/obsidian-headless/auth_token" ]; then
   echo "[obsidian-sync-pull] First run in this sandbox — authenticating..."
   ob login --email "$OBSIDIAN_EMAIL" --password "$OBSIDIAN_PASSWORD" \
     ${OBSIDIAN_MFA:+--mfa "$OBSIDIAN_MFA"}
+fi
 
+# Vault pairing is stored per-vault under sync/; set up if not yet done.
+if [ ! -d "$HOME/.config/obsidian-headless/sync" ]; then
   echo "[obsidian-sync-pull] Pairing local ./vault with remote vault '$OBSIDIAN_VAULT_NAME'..."
   ob sync-setup --path "$VAULT_DIR" \
     --vault "$OBSIDIAN_VAULT_NAME" \
