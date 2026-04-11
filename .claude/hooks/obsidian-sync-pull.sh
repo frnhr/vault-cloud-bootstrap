@@ -46,5 +46,5 @@ if [ ! -f "$HOME/.obsidian-headless/config.json" ]; then
 fi
 
 echo "[obsidian-sync-pull] Pulling vault from Obsidian Sync..."
-ob sync --vault "$VAULT_DIR"
+ob sync --path "$VAULT_DIR"
 echo "[obsidian-sync-pull] Vault ready at $VAULT_DIR"
