@@ -13,6 +13,19 @@ if ! command -v ob >/dev/null 2>&1; then
   npm install -g obsidian-headless
 fi
 
+# Node 22's built-in fetch (undici) ignores HTTPS_PROXY. Install the npm
+# undici package (once) so its ProxyAgent can be wired in via NODE_OPTIONS.
+GLOBAL_NODE_MODULES=$(npm root -g)
+if [ ! -d "$GLOBAL_NODE_MODULES/undici" ]; then
+  echo "[obsidian-sync-pull] Installing undici for proxy support..."
+  npm install -g undici
+fi
+
+# Route all ob fetch calls through the sandbox proxy.
+export GLOBAL_NODE_MODULES
+BOOTSTRAP="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/node-proxy-bootstrap.js"
+export NODE_OPTIONS="--require $BOOTSTRAP"
+
 # Fail loudly and early if credentials were not injected
 : "${OBSIDIAN_EMAIL:?OBSIDIAN_EMAIL env var is not set — configure it in the Claude Code cloud session}"
 : "${OBSIDIAN_PASSWORD:?OBSIDIAN_PASSWORD env var is not set}"
@@ -27,9 +40,9 @@ if [ ! -f "$HOME/.obsidian-headless/config.json" ]; then
     ${OBSIDIAN_MFA:+--mfa "$OBSIDIAN_MFA"}
 
   echo "[obsidian-sync-pull] Pairing local ./vault with remote vault '$OBSIDIAN_VAULT_NAME'..."
-  ob sync-setup --vault "$VAULT_DIR" \
-    --remote-vault "$OBSIDIAN_VAULT_NAME" \
-    --vault-password "$OBSIDIAN_VAULT_PASSWORD"
+  ob sync-setup --path "$VAULT_DIR" \
+    --vault "$OBSIDIAN_VAULT_NAME" \
+    --password "$OBSIDIAN_VAULT_PASSWORD"
 fi
 
 echo "[obsidian-sync-pull] Pulling vault from Obsidian Sync..."
