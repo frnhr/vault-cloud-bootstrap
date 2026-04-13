@@ -13,26 +13,9 @@ if ! command -v ob >/dev/null 2>&1; then
   npm install -g obsidian-headless
 fi
 
-# Node 22's built-in fetch/WebSocket (internal undici) ignore HTTPS_PROXY.
-# Install proxy-support packages once and wire them in via NODE_OPTIONS.
-GLOBAL_NODE_MODULES=$(npm root -g)
-for pkg in undici ws; do
-  if [ ! -d "$GLOBAL_NODE_MODULES/$pkg" ]; then
-    echo "[obsidian-sync-pull] Installing $pkg for proxy support..."
-    npm install -g "$pkg"
-  fi
-done
-# https-proxy-agent v5 is required (v6+ are ESM-only, incompatible with require())
-if ! node -e "require('$GLOBAL_NODE_MODULES/https-proxy-agent')" 2>/dev/null; then
-  echo "[obsidian-sync-pull] Installing https-proxy-agent@5 for proxy support..."
-  npm install -g https-proxy-agent@5
-fi
-
-# Route all ob fetch + WebSocket calls through the sandbox proxy.
-export GLOBAL_NODE_MODULES
-export NODE_PATH="$GLOBAL_NODE_MODULES"
-BOOTSTRAP="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/node-proxy-bootstrap.js"
-export NODE_OPTIONS="--require $BOOTSTRAP"
+# Node 22.19+ supports HTTPS_PROXY natively via --use-env-proxy (experimental
+# flag that enables EnvHttpProxyAgent for both fetch and WebSocket).
+export NODE_OPTIONS="--use-env-proxy"
 
 # Fail loudly and early if credentials were not injected
 : "${OBSIDIAN_EMAIL:?OBSIDIAN_EMAIL env var is not set — configure it in the Claude Code cloud session}"
