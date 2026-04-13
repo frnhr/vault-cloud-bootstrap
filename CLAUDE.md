@@ -1,6 +1,6 @@
 # vault-cloud-bootstrap
 
-Bootstrap repo for editing Fran's Obsidian vault from Claude Code cloud
+Bootstrap repo for editing one Obsidian vault from Claude Code cloud
 sessions (Claude Code on the Web). The vault itself lives in Obsidian Sync
 and is NOT in git.
 
