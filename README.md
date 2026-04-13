@@ -1,7 +1,7 @@
 # vault-cloud-bootstrap
 
 Minimal bootstrap repo for running **Claude Code cloud sessions** (Claude Code
-on the Web) against Fran's Obsidian vault. The vault lives in Obsidian Sync;
+on the Web) against an Obsidian vault. The vault lives in Obsidian Sync;
 this repo contains only the wiring to pull/push it via
 [`obsidian-headless`](https://github.com/obsidianmd/obsidian-headless) at
 session start and stop.
