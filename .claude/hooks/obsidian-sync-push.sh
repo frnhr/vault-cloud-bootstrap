@@ -5,12 +5,8 @@ set -euo pipefail
 
 VAULT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}/vault"
 
-# Route ob fetch calls through the sandbox proxy (same as pull hook).
-GLOBAL_NODE_MODULES=$(npm root -g)
-export GLOBAL_NODE_MODULES
-export NODE_PATH="$GLOBAL_NODE_MODULES"
-BOOTSTRAP="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/node-proxy-bootstrap.js"
-export NODE_OPTIONS="--require $BOOTSTRAP"
+# Node 22.19+ supports HTTPS_PROXY natively via --use-env-proxy.
+export NODE_OPTIONS="--use-env-proxy"
 
 echo "[obsidian-sync-push] Pushing vault changes via Obsidian Sync..."
 ob sync --path "$VAULT_DIR"
