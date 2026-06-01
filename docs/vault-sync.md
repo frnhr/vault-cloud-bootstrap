@@ -52,6 +52,11 @@ LOG="$HOME/.claude/hooks/vault-sync-pull.log"
 mkdir -p "$(dirname "$LOG")"
 : > "$LOG"
 
+# --- timing / context helpers ----------------------------------------------
+T0=$(date +%s)
+elapsed() { echo $(( $(date +%s) - T0 )); }       # seconds since hook start
+uptime_s() { cut -d. -f1 /proc/uptime 2>/dev/null || echo "?"; }  # sandbox age
+log()  { echo "[vault-sync] $*" >>"$LOG"; }
 fail() { echo "[vault-sync] $1 — see $LOG"; exit 0; }
 
 for v in OBSIDIAN_EMAIL OBSIDIAN_PASSWORD OBSIDIAN_VAULT_NAME OBSIDIAN_VAULT_PASSWORD; do
@@ -71,43 +76,64 @@ fi
 
 export NODE_OPTIONS="--use-env-proxy"
 
-# Diagnostic: capture the raw /user/signin response.
-# obsidian-headless logs in via `POST https://api.obsidian.md/user/signin` and
-# JSON.parse()s the body *internally*, so an HTML error page (seen at cold
-# container start — the egress proxy returns a gateway page before it is warm,
-# recovers on retry) only surfaces as "SyntaxError: Unexpected token '<'" with
-# no body. We re-issue the request with curl and save the raw response so the
-# HTML can be inspected. A dummy body is sent — no real credentials are used.
+# --- diagnostics (instrument-only; NO retry / NO behaviour change) ----------
+# Recurring symptom: at cold sandbox start `ob login` intermittently fails with
+# {"error":"Server overloaded, please try again later."} returned by Obsidian's
+# Cloudflare edge, then succeeds on a retry. `ob` hides the HTTP layer, so we
+# probe POST /user/signin directly with curl and read the raw status line and
+# headers (retry-after / cf-ray / cf-cache-status) that tell us whether this is
+# upstream throttling vs a cold egress proxy. The probe sends an empty {} body
+# — NO credentials, nothing to leak — so it is just an IP-level health/throttle
+# sensor, sampled right next to the real login. We also stamp every phase with
+# elapsed time and sandbox uptime to test the "only when cold" hypothesis.
 OB_SIGNIN_URL="https://api.obsidian.md/user/signin"
-capture_signin_response() {
+
+probe_signin() {  # $1=label; logs a parsed summary and echoes it on stdout
   local label="$1" out
   out="$HOME/.claude/hooks/signin-$(date +%Y%m%dT%H%M%S)-${label}.http"
   {
-    echo "# $(date -Is) — ${label} probe of ${OB_SIGNIN_URL} (dummy body, no credentials)"
+    echo "# $(date -Is) — ${label} probe of ${OB_SIGNIN_URL} (empty {} body, no credentials)"
     echo
     curl -sS -m 20 -X POST "$OB_SIGNIN_URL" \
       -H 'Content-Type: application/json' \
       -H 'Origin: https://obsidian.md' \
       --data '{}' -D - 2>&1
   } >"$out" 2>&1 || true
-  echo "[vault-sync] signin response captured -> $out" >>"$LOG"
+
+  local http retry ray cc apierr
+  http=$(grep  -m1 -iE '^HTTP/'            "$out" | tr -d '\r' || true)
+  retry=$(grep -m1 -i  '^retry-after:'     "$out" | tr -d '\r' | cut -d: -f2- | xargs || true)
+  ray=$(grep   -m1 -i  '^cf-ray:'          "$out" | tr -d '\r' | cut -d: -f2- | xargs || true)
+  cc=$(grep    -m1 -i  '^cf-cache-status:' "$out" | tr -d '\r' | cut -d: -f2- | xargs || true)
+  apierr=$(grep -m1 -o '"error":"[^"]*"'   "$out" | cut -d: -f2- | tr -d '"' || true)
+  local summary="http='${http:-?}' retry_after='${retry:-}' cf_ray='${ray:-}' cc='${cc:-}' api_error='${apierr:-}'"
+  log "probe[$label] (t+$(elapsed)s, up $(uptime_s)s) $summary -> $out"
+  echo "$summary"
 }
+# ---------------------------------------------------------------------------
 
 OB_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless"
 if [ ! -f "$OB_CONFIG_DIR/auth_token" ]; then
-  capture_signin_response precold
-  ob login --email "$OBSIDIAN_EMAIL" --password "$OBSIDIAN_PASSWORD" \
-    ${OBSIDIAN_MFA:+--mfa "$OBSIDIAN_MFA"} >>"$LOG" 2>&1 \
-    || { capture_signin_response postfail; fail "login failed — inspect $HOME/.claude/hooks/signin-*.http"; }
+  log "cold auth: sandbox up $(uptime_s)s at first login attempt"
+  probe_signin precold >/dev/null
+  login_t0=$(date +%s)
+  if ! ob login --email "$OBSIDIAN_EMAIL" --password "$OBSIDIAN_PASSWORD" \
+        ${OBSIDIAN_MFA:+--mfa "$OBSIDIAN_MFA"} >>"$LOG" 2>&1; then
+    diag=$(probe_signin postfail)
+    echo "[vault-sync] login FAILED (t+$(elapsed)s, sandbox up $(uptime_s)s, login took $(( $(date +%s) - login_t0 ))s): $diag"
+    fail "login failed — inspect $HOME/.claude/hooks/signin-*.http and $LOG"
+  fi
+  log "login OK in $(( $(date +%s) - login_t0 ))s"
   ob sync-setup --path "$VAULT_DIR" \
     --vault "$OBSIDIAN_VAULT_NAME" --password "$OBSIDIAN_VAULT_PASSWORD" >>"$LOG" 2>&1 \
     || fail "pairing failed"
 fi
 
+sync_t0=$(date +%s)
 ob sync --path "$VAULT_DIR" >>"$LOG" 2>&1 \
   || fail "pull failed — vault may be stale"
 
-echo "[vault-sync] Vault ready at $VAULT_DIR (read $VAULT_DIR/_GUIDE.md before editing)."
+echo "[vault-sync] Vault ready at $VAULT_DIR (t+$(elapsed)s, sandbox up $(uptime_s)s, sync $(( $(date +%s) - sync_t0 ))s). Read $VAULT_DIR/_GUIDE.md before editing."
 PULL
 chmod +x ~/.claude/hooks/vault-sync-pull.sh
 
@@ -208,24 +234,52 @@ session.
 
 Logs live in `~/.claude/hooks/`:
 
-- `vault-sync-pull.log` / `vault-sync-push.log` — full `ob` output.
-- `signin-*.http` — raw `/user/signin` probe captures (see note below).
+- `vault-sync-pull.log` / `vault-sync-push.log` — full `ob` output, plus the
+  per-phase diagnostic lines (`probe[...]`, `login OK in Ns`, etc.).
+- `signin-*.http` — raw `/user/signin` probe captures with full headers.
 
-Common situations:
+### The "fails at cold start, works on retry" login error
 
-- **Vault dir (`$HOME/vault`) is empty after start.** The pull hook is
-  fail-soft (always `exit 0`) so a sync hiccup never blocks the session — check
+The recurring failure is `{"error":"Server overloaded, please try again
+later."}` from `api.obsidian.md` during `ob login`. What we know:
+
+- The response carries `server: cloudflare` + a `cf-ray` header, so it comes
+  from **Obsidian's own Cloudflare edge**, not the Claude egress proxy — i.e.
+  upstream throttling/overload, delivered cleanly (HTTP 200 with an error
+  *body*, which is why `ob` can't gate on status code alone).
+- It is transient and not predictable: the same probe can flip between a normal
+  validation error and "Server overloaded" seconds apart, and login has
+  succeeded moments after a probe still reported overloaded. The most likely
+  cause is rate-limiting at Obsidian's edge, plausibly amplified because cloud
+  sandboxes egress through a shared proxy IP pool.
+
+The pull hook is **instrumented to confirm this** without changing behaviour
+(still one login attempt, still fail-soft):
+
+- On failure it prints a one-line summary to the session — elapsed time,
+  **sandbox uptime**, login duration, and the probe's `http` / `retry_after` /
+  `cf_ray` / `cf-cache-status` / `api_error`. Collect these across a few
+  recurrences and check:
+  - Do failures cluster at **low `sandbox up Ns`** (→ cold-start timing)?
+  - Is there a `retry_after` header (→ explicit rate limit)?
+  - Is `http` a clean `HTTP/2 200` with an error body, or an HTML/non-JSON page
+    (→ that would instead point at a cold egress proxy)?
+
+Once the data points one way, the fix is most likely a **retry with
+exponential backoff + jitter** around `ob login` / `ob sync` (exit-code based,
+so it covers both the "Server overloaded" JSON and any cold-proxy
+`SyntaxError` mode). To recover in-session right now: re-run `ob login` then
+`ob sync --path "$HOME/vault"`.
+
+### Other notes
+
+- **`$HOME/vault` empty after start** — the pull hook is fail-soft (always
+  `exit 0`) so a sync hiccup never blocks the session. Read
   `vault-sync-pull.log` for the real cause.
-- **`{"error":"Server overloaded, please try again later."}`** from
-  `api.obsidian.md` is a *transient* server-side error. The login is not cached
-  on failure (no `auth_token` written), so the next SessionStart simply retries.
-  To recover in-session, re-run `ob login` then `ob sync --path "$HOME/vault"`.
-- **The `signin-*.http` captures are a red herring for health checks.** They
-  POST an empty `{}` body, which the API rejects with a generic error (often the
-  same "Server overloaded" string) even when real authenticated login works
-  fine. They exist only to surface a raw HTML gateway page from a cold egress
-  proxy. Do not treat a non-200-looking capture as proof login is broken — check
-  the log and try a real `ob login`.
+- **The `signin-*.http` probe is a sensor, not the verdict.** A non-2xx-looking
+  capture does not by itself prove login is broken (the empty `{}` body is also
+  rejected with an error); read it together with the login exit status in the
+  log.
 - **`better-sqlite3` fails to compile** during `npm install -g
   obsidian-headless`: add `apt install -y build-essential python3` before the
   install.
