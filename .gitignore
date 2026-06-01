@@ -1,8 +1,7 @@
-# Re-include files excluded by the user's global gitignore. The global
-# ~/.gitignore_global excludes `.claude` and `CLAUDE.md` everywhere, but
-# those are exactly what this bootstrap repo exists to version-control.
-!.claude
-!.claude/**
+# Re-include CLAUDE.md, which the user's global ~/.gitignore_global excludes
+# everywhere — this bootstrap repo needs to version-control it. (Sync hooks now
+# live at the user level; see docs/vault-sync.md. This repo ships no `.claude/`
+# directory.)
 !CLAUDE.md
 
 # Vault contents are populated at runtime by the SessionStart hook and must
