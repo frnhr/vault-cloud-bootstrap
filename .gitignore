@@ -5,6 +5,10 @@
 !.claude/**
 !CLAUDE.md
 
+# ...except the scheduler's runtime lock, which is regenerated every session
+# and must never be committed.
+.claude/scheduled_tasks.lock
+
 # Vault contents are populated at runtime by the SessionStart hook and must
 # never be committed. Keep only the .gitkeep so the directory exists in git.
 vault/*
