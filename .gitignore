@@ -10,6 +10,10 @@
 vault/*
 !vault/.gitkeep
 
+# Scheduler runtime lock — created at session runtime, never a versioned artifact.
+# Must come after the `!.claude/**` re-include above so it is ignored again.
+.claude/scheduled_tasks.lock
+
 # obsidian-headless local state (only relevant if someone runs this locally)
 .obsidian-headless/
 
