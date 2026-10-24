@@ -203,6 +203,6 @@ echo "Disabled idle compaction (settings.json)"
 echo
 
 # 6. Session-wide instructions (the vault, topic-switch checks, PR naming).
-install -m 644 "$HERE/templates/user-claude.md" "$CLAUDE_MD_PATH"
+install -D -m 644 "$HERE/templates/user-claude.md" "$CLAUDE_MD_PATH"
 echo "Wrote $CLAUDE_MD_PATH"
 echo "Build log kept at $BUILD_LOG; run ~/.claude/hooks/vault-doctor.sh in a session."
