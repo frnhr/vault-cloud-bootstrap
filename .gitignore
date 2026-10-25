@@ -1,1 +1,6 @@
 .DS_Store
+
+# The Obsidian vault is synced via Obsidian Sync (obsidian-headless), never
+# committed here. A session may leave a local copy at ./vault; keep it out of
+# git so private vault content is never pushed to this repo.
+vault/
