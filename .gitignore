@@ -1,1 +1,4 @@
 .DS_Store
+
+# Obsidian vault synced into the session by the vault-sync hook; not part of this repo.
+/vault/
